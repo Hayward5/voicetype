@@ -10,7 +10,9 @@ import threading
 import webbrowser
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
+
+from core.llm import LLMProcessor
 
 logger = logging.getLogger("VoiceType.SettingsServer")
 
@@ -33,6 +35,20 @@ class SettingsAPIHandler(SimpleHTTPRequestHandler):
         if parsed.path == "/api/config":
             # 回傳當前設定
             self._send_json(self.settings.get_config())
+        elif parsed.path == "/api/models":
+            query = parse_qs(parsed.query)
+            provider = query.get("provider", [""])[0]
+            if not provider:
+                self._send_json({"status": "error", "message": "provider is required"}, code=400)
+                return
+
+            try:
+                llm = LLMProcessor(self.settings)
+                models = llm.list_models(provider=provider, cfg=self.settings.get_config())
+                self._send_json({"status": "ok", "provider": provider, "models": models})
+            except Exception as e:
+                logger.warning("取得模型清單失敗 (%s): %s", provider, e)
+                self._send_json({"status": "error", "message": str(e), "models": []}, code=502)
         elif parsed.path == "/api/health":
             self._send_json({"status": "ok", "version": "0.1.0"})
         else:

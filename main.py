@@ -268,7 +268,7 @@ class VoiceType:
         missing = []
         if stt_provider in ("groq", "openai") and not keys.get(stt_provider):
             missing.append(f"STT ({stt_provider})")
-        if llm_provider in ("openai", "anthropic", "groq") and not keys.get(llm_provider):
+        if llm_provider in ("openai", "anthropic", "groq", "bedrock") and not keys.get(llm_provider):
             missing.append(f"LLM ({llm_provider})")
 
         if missing:

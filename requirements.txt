@@ -21,6 +21,7 @@ Pillow>=10.0.0
 openai>=1.30.0          # OpenAI + Groq (相容介面)
 anthropic>=0.28.0       # Anthropic Claude
 requests>=2.31.0        # Ollama HTTP 呼叫
+boto3>=1.35.0           # Amazon Bedrock
 
 # ── Windows 限定（偵測當前視窗）──
 # pywin32>=306           # 取消註解以啟用語境偵測功能
