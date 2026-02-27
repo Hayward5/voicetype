@@ -36,6 +36,7 @@ python main.py
 |------|------|------|
 | **Groq** | 語音辨識（STT） | https://console.groq.com/keys |
 | **OpenAI** | 文字修飾（LLM） | https://platform.openai.com/api-keys |
+| **Amazon Bedrock** | 文字修飾（LLM） | https://console.aws.amazon.com/bedrock |
 
 > Groq 提供免費額度，OpenAI gpt-4o-mini 費用極低，兩者搭配為推薦組合。
 
@@ -82,6 +83,36 @@ python main.py
 | Anthropic Claude | 快 | 低 | 高品質文字處理 |
 | Groq | 極快 | 幾乎免費 | 開源模型 |
 | Ollama | 依硬體 | 免費 | 完全離線 |
+| **Amazon Bedrock** | 快 | 依模型 | AWS 託管模型（Nova / Claude / Llama） |
+
+### Amazon Bedrock 設定
+
+VoiceType 支援 Amazon Bedrock 作為 LLM 引擎，提供兩種認證方式：
+
+#### 方式一：Bedrock API Key（推薦用於快速開始）
+
+1. 登入 [AWS Bedrock Console](https://console.aws.amazon.com/bedrock)
+2. 在左側選單選擇「API keys」
+3. 產生 Long-term API Key（30 天有效）或 Short-term API Key
+4. 將 API Key 填入 VoiceType 設定頁面的「Amazon Bedrock API Key」欄位
+
+#### 方式二：IAM 認證（推薦用於生產環境）
+
+若未設定 Bedrock API Key，VoiceType 會自動使用 boto3 SDK 的 IAM 認證：
+- 確保已安裝並設定 AWS CLI (`aws configure`)
+- 或設定環境變數 `AWS_ACCESS_KEY_ID` 和 `AWS_SECRET_ACCESS_KEY`
+
+#### 支援的模型
+
+選擇 Bedrock 作為 LLM 引擎後，VoiceType 會自動從 AWS 取得可用模型清單，包括：
+- Amazon Nova（nova-lite、nova-pro）
+- Anthropic Claude（claude-3-haiku、claude-3-sonnet）
+- Meta Llama
+- 其他 Bedrock 支援的基礎模型
+
+#### 區域設定
+
+預設使用 `us-east-1`，可在設定頁面的「Bedrock Region」欄位更改。
 
 ### 快捷鍵
 
@@ -105,6 +136,9 @@ voicetype/
 │   └── settings_server.py   # Web 設定伺服器
 ├── ui/
 │   └── settings.html        # 設定頁面
+├── tests/
+│   ├── test_bedrock_auth.py # Bedrock 認證測試
+│   └── test_no_x_api_key.py # API Key 測試
 ├── assets/
 │   └── VoiceType.exe.manifest
 ├── build.py                 # 打包腳本
