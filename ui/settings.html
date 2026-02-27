@@ -244,6 +244,28 @@
       <div class="section">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
           <div>
+            <div class="section-label" style="margin:0">Amazon Bedrock API Key</div>
+            <div class="section-desc" style="margin:0">用於 Bedrock Converse 與模型清單查詢</div>
+          </div>
+          <a class="link-btn" href="https://docs.aws.amazon.com/bedrock/" target="_blank">官方文件 ↗</a>
+        </div>
+        <div class="input-group">
+          <input type="password" id="key-bedrock" placeholder="bedrock_api_...">
+          <button class="btn-icon" onclick="toggleVis('key-bedrock')">👁</button>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="section-label">Bedrock Region</div>
+        <div class="section-desc">例如 us-east-1、us-west-2；若留空會使用 us-east-1</div>
+        <div class="input-group">
+          <input type="text" id="bedrock-region" placeholder="us-east-1">
+        </div>
+      </div>
+
+      <div class="section">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+          <div>
             <div class="section-label" style="margin:0">OpenAI API Key</div>
             <div class="section-desc" style="margin:0">用於 Whisper / ChatGPT · <span style="color:var(--accent)">LLM 修飾推薦</span></div>
           </div>
@@ -391,6 +413,7 @@ const LLM_PROVIDERS = [
   { id: "openai", name: "OpenAI ChatGPT", desc: "智能修飾首選，穩定可靠", models: ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1-nano"] },
   { id: "anthropic", name: "Anthropic Claude", desc: "高品質文字處理", models: ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929"] },
   { id: "groq", name: "Groq (開源模型)", desc: "極快推理", models: ["llama-3.3-70b-versatile", "gemma2-9b-it"] },
+  { id: "bedrock", name: "Amazon Bedrock", desc: "AWS 託管模型（Nova / Claude / Llama）", models: ["amazon.nova-lite-v1:0"] },
   { id: "ollama", name: "Ollama 本地", desc: "完全離線", models: ["qwen3:8b", "gemma3:4b", "llama3.2:3b"] },
 ];
 
@@ -413,6 +436,7 @@ const OUTPUT_MODES = [
 
 // ── State ─────────────────────────────────────────────────────────────────────
 let config = {};
+const dynamicModels = {};
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 async function init() {
@@ -424,7 +448,8 @@ async function init() {
     config = {
       sttProvider: "groq", llmProvider: "openai",
       sttModel: "whisper-large-v3-turbo", llmModel: "gpt-4o-mini",
-      apiKeys: { groq: "", openai: "", anthropic: "", ollama: "http://localhost:11434" },
+      apiKeys: { groq: "", openai: "", anthropic: "", bedrock: "", ollama: "http://localhost:11434" },
+      bedrockRegion: "us-east-1",
       hotkey: "RightAlt", language: "auto", outputMode: "clipboard",
       removeFiller: true, autoFormat: true, contextAware: true,
       dictionary: [], systemPrompt: "",
@@ -439,7 +464,9 @@ function render() {
   document.getElementById("key-groq").value = config.apiKeys?.groq || "";
   document.getElementById("key-openai").value = config.apiKeys?.openai || "";
   document.getElementById("key-anthropic").value = config.apiKeys?.anthropic || "";
+  document.getElementById("key-bedrock").value = config.apiKeys?.bedrock || "";
   document.getElementById("key-ollama").value = config.apiKeys?.ollama || "http://localhost:11434";
+  document.getElementById("bedrock-region").value = config.bedrockRegion || "us-east-1";
 
   // STT Providers
   renderProviders("stt-providers", STT_PROVIDERS, config.sttProvider, (id) => {
@@ -603,8 +630,10 @@ async function saveConfig() {
     groq: document.getElementById("key-groq").value,
     openai: document.getElementById("key-openai").value,
     anthropic: document.getElementById("key-anthropic").value,
+    bedrock: document.getElementById("key-bedrock").value,
     ollama: document.getElementById("key-ollama").value,
   };
+  config.bedrockRegion = document.getElementById("bedrock-region").value || "us-east-1";
   config.systemPrompt = document.getElementById("system-prompt").value;
 
   try {
@@ -627,8 +656,10 @@ function exportConfig() {
     groq: document.getElementById("key-groq").value,
     openai: document.getElementById("key-openai").value,
     anthropic: document.getElementById("key-anthropic").value,
+    bedrock: document.getElementById("key-bedrock").value,
     ollama: document.getElementById("key-ollama").value,
   };
+  config.bedrockRegion = document.getElementById("bedrock-region").value || "us-east-1";
   config.systemPrompt = document.getElementById("system-prompt").value;
 
   const blob = new Blob([JSON.stringify(config, null, 2)], { type: "application/json" });
@@ -650,6 +681,31 @@ document.querySelectorAll(".tab").forEach(tab => {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 init();
+
+async function loadProviderModels(providerId) {
+  try {
+    const res = await fetch(`${API_BASE}/api/models?provider=${encodeURIComponent(providerId)}`);
+    const data = await res.json();
+    if (data.status === "ok" && Array.isArray(data.models) && data.models.length) {
+      dynamicModels[providerId] = data.models;
+      const provider = LLM_PROVIDERS.find(p => p.id === providerId);
+      if (provider) provider.models = data.models;
+
+      if (config.llmProvider === providerId) {
+        if (!data.models.includes(config.llmModel)) {
+          config.llmModel = data.models[0];
+        }
+        render();
+      }
+    }
+  } catch {
+    // Keep static fallback list
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  loadProviderModels("bedrock");
+});
 </script>
 </body>
 </html>

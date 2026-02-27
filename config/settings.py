@@ -12,7 +12,7 @@ logger = logging.getLogger("VoiceType.Settings")
 
 # 有效值定義
 VALID_STT_PROVIDERS = {"groq", "openai", "local"}
-VALID_LLM_PROVIDERS = {"openai", "anthropic", "groq", "ollama"}
+VALID_LLM_PROVIDERS = {"openai", "anthropic", "groq", "ollama", "bedrock"}
 VALID_HOTKEYS = {"RightAlt", "RightCtrl", "F9", "CapsLock", "ScrollLock"}
 VALID_LANGUAGES = {"auto", "zh-TW", "zh-CN", "en", "ja"}
 
@@ -26,8 +26,10 @@ DEFAULT_CONFIG = {
         "groq": "",
         "openai": "",
         "anthropic": "",
+        "bedrock": "",
         "ollama": "http://localhost:11434",
     },
+    "bedrockRegion": "us-east-1",
     "hotkey": "RightAlt",
     "language": "auto",
     "outputMode": "clipboard",

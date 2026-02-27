@@ -1,10 +1,11 @@
 """
 LLM 智能修飾模組
 將 STT 原始文字送給 LLM 進行去贅字、修正、格式化
-支援 OpenAI ChatGPT、Anthropic Claude、Groq、Ollama
+支援 OpenAI ChatGPT、Anthropic Claude、Groq、Ollama、Amazon Bedrock
 """
 
 import logging
+from typing import Any
 
 from config.settings import DEFAULT_SYSTEM_PROMPT
 
@@ -35,6 +36,8 @@ class LLMProcessor:
                 return self._polish_groq(raw_text, cfg)
             elif provider == "ollama":
                 return self._polish_ollama(raw_text, cfg)
+            elif provider == "bedrock":
+                return self._polish_bedrock(raw_text, cfg)
             else:
                 logger.warning("未知 LLM 引擎 %s，直接輸出原文", provider)
                 return raw_text.strip()
@@ -177,3 +180,95 @@ class LLMProcessor:
         response.raise_for_status()
         data = response.json()
         return data["message"]["content"].strip()
+
+    # ── Amazon Bedrock ───────────────────────────────────────────────────────
+
+    def list_models(self, provider: str, cfg: dict | None = None) -> list[str]:
+        """取得指定引擎可用模型清單。"""
+        cfg = cfg or self.settings.get_config()
+
+        if provider == "bedrock":
+            return self._list_models_bedrock(cfg)
+
+        static_models = {
+            "openai": ["gpt-4o-mini", "gpt-4o", "gpt-4.1-mini", "gpt-4.1-nano"],
+            "anthropic": ["claude-haiku-4-5-20251001", "claude-sonnet-4-5-20250929"],
+            "groq": ["llama-3.3-70b-versatile", "gemma2-9b-it"],
+            "ollama": ["qwen3:8b", "gemma3:4b", "llama3.2:3b"],
+        }
+        return static_models.get(provider, [])
+
+    def _get_bedrock_auth(self, cfg: dict) -> tuple[str, str]:
+        """回傳 Bedrock 認證模式與區域。"""
+        region = cfg.get("bedrockRegion", "us-east-1")
+        api_key = self.settings.get_api_key("bedrock")
+        mode = "api_key" if api_key else "iam"
+        return mode, region
+
+    def _list_models_bedrock(self, cfg: dict) -> list[str]:
+        """從 Bedrock 自動列出支援文字輸出的基礎模型。"""
+        import requests
+
+        mode, region = self._get_bedrock_auth(cfg)
+
+        if mode == "api_key":
+            api_key = self.settings.get_api_key("bedrock")
+            response = requests.get(
+                f"https://bedrock.{region}.amazonaws.com/foundation-models",
+                params={"byOutputModality": "TEXT"},
+                headers={"x-api-key": api_key},
+                timeout=20,
+            )
+            response.raise_for_status()
+            data = response.json()
+            summaries = data.get("modelSummaries", [])
+        else:
+            import boto3
+
+            client = boto3.client("bedrock", region_name=region)
+            data = client.list_foundation_models(byOutputModality="TEXT")
+            summaries = data.get("modelSummaries", [])
+
+        model_ids: list[str] = []
+        for item in summaries:
+            model_id = item.get("modelId")
+            if model_id:
+                model_ids.append(model_id)
+        return sorted(set(model_ids))
+
+    def _polish_bedrock(self, raw_text: str, cfg: dict) -> str:
+        """呼叫 Bedrock Converse API 進行文字修飾。"""
+        import requests
+
+        model = cfg.get("llmModel") or "amazon.nova-lite-v1:0"
+        mode, region = self._get_bedrock_auth(cfg)
+        system_prompt = self._get_system_prompt(cfg)
+
+        body: dict[str, Any] = {
+            "messages": [{"role": "user", "content": [{"text": raw_text}]}],
+            "system": [{"text": system_prompt}],
+            "inferenceConfig": {"temperature": 0.3, "maxTokens": 2048},
+        }
+
+        if mode == "api_key":
+            api_key = self.settings.get_api_key("bedrock")
+            response = requests.post(
+                f"https://bedrock-runtime.{region}.amazonaws.com/model/{model}/converse",
+                headers={"x-api-key": api_key, "Content-Type": "application/json"},
+                json=body,
+                timeout=30,
+            )
+            response.raise_for_status()
+            data = response.json()
+        else:
+            import boto3
+
+            client = boto3.client("bedrock-runtime", region_name=region)
+            data = client.converse(modelId=model, **body)
+
+        contents = data.get("output", {}).get("message", {}).get("content", [])
+        for block in contents:
+            text = block.get("text")
+            if text:
+                return text.strip()
+        raise RuntimeError("Bedrock response missing output text")
