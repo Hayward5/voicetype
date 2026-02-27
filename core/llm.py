@@ -5,6 +5,7 @@ LLM 智能修飾模組
 """
 
 import logging
+import time
 from typing import Any
 
 from config.settings import DEFAULT_SYSTEM_PROMPT
@@ -61,18 +62,24 @@ class LLMProcessor:
         """偵測當前使用的 App 來調整語氣"""
         try:
             import win32gui
+
             hwnd = win32gui.GetForegroundWindow()
             title = win32gui.GetWindowText(hwnd).lower()
 
             if any(k in title for k in ["outlook", "gmail", "mail", "thunderbird"]):
                 return "用戶正在撰寫郵件，語氣應正式專業"
-            elif any(k in title for k in ["discord", "line", "messenger", "telegram", "whatsapp"]):
+            elif any(
+                k in title
+                for k in ["discord", "line", "messenger", "telegram", "whatsapp"]
+            ):
                 return "用戶正在聊天，語氣可以輕鬆口語"
             elif any(k in title for k in ["slack", "teams"]):
                 return "用戶在工作通訊軟體，語氣應簡潔專業"
             elif any(k in title for k in ["word", "docs", "notion", "obsidian"]):
                 return "用戶在撰寫文件，語氣應清晰有條理"
-            elif any(k in title for k in ["code", "vscode", "visual studio", "pycharm"]):
+            elif any(
+                k in title for k in ["code", "vscode", "visual studio", "pycharm"]
+            ):
                 return "用戶在寫程式，可能是在寫註解或文件，語氣應技術性簡潔"
         except Exception:
             pass
@@ -216,7 +223,7 @@ class LLMProcessor:
             response = requests.get(
                 f"https://bedrock.{region}.amazonaws.com/foundation-models",
                 params={"byOutputModality": "TEXT"},
-                headers={"x-api-key": api_key},
+                headers={"Authorization": f"Bearer {api_key}"},
                 timeout=20,
             )
             response.raise_for_status()
@@ -237,8 +244,9 @@ class LLMProcessor:
         return sorted(set(model_ids))
 
     def _polish_bedrock(self, raw_text: str, cfg: dict) -> str:
-        """呼叫 Bedrock Converse API 進行文字修飾。"""
+        """呼叫 Bedrock Converse API 進行文字修飾（含 retry 機制）。"""
         import requests
+        from requests.exceptions import HTTPError
 
         model = cfg.get("llmModel") or "amazon.nova-lite-v1:0"
         mode, region = self._get_bedrock_auth(cfg)
@@ -252,14 +260,46 @@ class LLMProcessor:
 
         if mode == "api_key":
             api_key = self.settings.get_api_key("bedrock")
-            response = requests.post(
-                f"https://bedrock-runtime.{region}.amazonaws.com/model/{model}/converse",
-                headers={"x-api-key": api_key, "Content-Type": "application/json"},
-                json=body,
-                timeout=30,
+            url = (
+                f"https://bedrock-runtime.{region}.amazonaws.com/model/{model}/converse"
             )
-            response.raise_for_status()
-            data = response.json()
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+
+            # Retry 機制處理 ThrottlingException (429) 和 ServiceUnavailable (503)
+            max_retries = 3
+            last_error: Exception | None = None
+
+            for attempt in range(max_retries):
+                try:
+                    response = requests.post(
+                        url, headers=headers, json=body, timeout=30
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    break
+                except HTTPError as e:
+                    last_error = e
+                    status_code = e.response.status_code if e.response else 0
+                    # 429: ThrottlingException / ModelNotReadyException
+                    # 503: ServiceUnavailableException
+                    if status_code in (429, 503) and attempt < max_retries - 1:
+                        wait_time = 2**attempt  # 1s, 2s, 4s exponential backoff
+                        logger.warning(
+                            "Bedrock API 返回 %d，%d 秒後重試 (嘗試 %d/%d)",
+                            status_code,
+                            wait_time,
+                            attempt + 1,
+                            max_retries,
+                        )
+                        time.sleep(wait_time)
+                        continue
+                    raise
+            else:
+                # 所有重試都失敗
+                raise last_error or RuntimeError("Bedrock API 請求失敗")
         else:
             import boto3
 
